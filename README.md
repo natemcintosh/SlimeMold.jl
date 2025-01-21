@@ -1,5 +1,5 @@
 # SlimeMold.jl
-An attempt to use Agents.jl to roughly model slime mold
+An attempt to use Agents.jl to roughly model slime mold. Inspired by this incredible video by Sebastian Lague of slime molds simulated on a GPU. I don't expect to be able to match the GPU visualizations, but perhaps we can do smaller sims with Agents.jl. This [write-up](https://cargocollective.com/sagejenson/physarum) also has some excellent slime mold sim content, as well as descriptive pseudo-code and graphical explanations of how the process works.
 
 ## Plans
 - [X] Agents move about mostly randomly
