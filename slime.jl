@@ -1,4 +1,5 @@
 using Random
+using Test
 using Agents
 using CairoMakie
 using ImageFiltering
@@ -8,18 +9,86 @@ using ImageFiltering
     heading_rad::Float64
 end
 
-function slime_step!(agent, model)
-    # Based on the agent's current heading, pick a position in that direction
-    # with some amount of randomness
-    new_heading = agent.heading_rad + randn() * model.wanter_rate
+const polygon = Makie.Polygon(Point2f[(-1,-1),(2,0),(-1,1)])
+function slime_marker(s::Slime)
+    rotate_polygon(polygon, s.heading_rad)
+end
+"""
+    wrap_idx(idx, max_idx)
 
-    # Update the agent's heading
-    agent.heading_rad = new_heading
+If an index is out of bounds, wrap it around to the other side of the grid by
+the right amount. Uses 1-based indexing.
+"""
+@inline function wrap_idx(idx, max_idx)
+    if idx < 1
+        return idx + max_idx
+    elseif idx > max_idx
+        return idx - max_idx
+    else
+        return idx
+    end
+end
+
+@testset "wrap_idx" begin
+    @test wrap_idx(0, 10) == 10
+    @test wrap_idx(11, 10) == 1
+    @test wrap_idx(5, 10) == 5
+
+    @test wrap_idx(-1, 3) == 2
+    @test wrap_idx(-2, 3) == 1
+end
+
+function slime_step!(agent, model)
+    # Sense the pheromone concentration in the three squares in front of the agent,
+    # and pick the one with the highest concentration.
+    # The three in "front" of the agent are the in the direction of the agent's heading
+    # and the two squares to the left and right of that direction.
+    front = (
+        wrap_idx(agent.pos[1] + round(Int, cos(agent.heading_rad)), size(model.ground, 1)),
+        wrap_idx(agent.pos[2] + round(Int, sin(agent.heading_rad)), size(model.ground, 2)),
+    )
+    left = (
+        wrap_idx(
+            agent.pos[1] + round(Int, cos(agent.heading_rad + π / 2)),
+            size(model.ground, 1),
+        ),
+        wrap_idx(
+            agent.pos[2] + round(Int, sin(agent.heading_rad + π / 2)),
+            size(model.ground, 2),
+        ),
+    )
+    right = (
+        wrap_idx(
+            agent.pos[1] + round(Int, cos(agent.heading_rad - π / 2)),
+            size(model.ground, 1),
+        ),
+        wrap_idx(
+            agent.pos[2] + round(Int, sin(agent.heading_rad - π / 2)),
+            size(model.ground, 2),
+        ),
+    )
+    # Get the pheromone concentration in each of the three squares
+    front_concentration = model.ground[front[1], front[2]]
+    left_concentration = model.ground[left[1], left[2]]
+    right_concentration = model.ground[right[1], right[2]]
+
+    # Pick the square with the highest concentration
+    if front_concentration >= left_concentration &&
+       front_concentration >= right_concentration
+        # Do nothing, the agent will continue in the direction it was heading
+    elseif left_concentration >= front_concentration &&
+           left_concentration >= right_concentration
+        # Turn left
+        agent.heading_rad += π / 2
+    else
+        # Turn right
+        agent.heading_rad -= π / 2
+    end
 
     # Calculate the direction in which to walk. It must be a tuple of Ints
     direction = (
-        round(Int, cos(new_heading)) * model.particle_speed,
-        round(Int, sin(new_heading)) * model.particle_speed,
+        round(Int, cos(agent.heading_rad)) * model.particle_speed,
+        round(Int, sin(agent.heading_rad)) * model.particle_speed,
     )
 
     # Have the agent walk in the new direction
@@ -33,7 +102,7 @@ function ground_step!(model)
     # For each neighbor
     for agent in allagents(model)
         # Deposit pheromone
-        model.ground[agent.pos[1], agent.pos[2]] += model.particle_deposit_amount
+        model.ground[agent.pos[1], agent.pos[2]] += max(1, model.particle_deposit_amount)
     end
 
     # === Pheromone diffusion ==================================================
@@ -58,10 +127,10 @@ function initialize(;
             ground = zeros(Float64, gridsize),
             buffer = zeros(Float64, gridsize),
             diffusion_rate = 1,
-            decay_rate = 0.99,
-            particle_speed = 3,
-            particle_deposit_amount = 10,
-            wanter_rate = 1,
+            decay_rate = 0.80,
+            particle_speed = 2,
+            particle_deposit_amount = 1,
+            wander_rate = 0.1,
         ),
         rng = rng,
         container = Vector,
@@ -85,7 +154,7 @@ function run_model!(model; n_steps::Int = 10)
 end
 
 function animate(; seed = 42)
-    model = initialize(seed = seed)
+    model = initialize(total_agents = 2, gridsize = (200, 200), seed = seed)
 
     heatkwargs = (
         colormap = :grays,
@@ -96,9 +165,10 @@ function animate(; seed = 42)
     abmvideo(
         "slime.mp4",
         model;
-        frames = 250,
+        agent_marker = slime_marker,
+        frames = 100,
+        framerate = 10,
         title = "Slime mold simulation",
-        agent_size = 5,
         agent_color = :white,
         heatarray = :ground,
         heatkwargs,
